@@ -1,0 +1,32 @@
+name: Build & Squeeze Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Verify Layer Footprint
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime-verifier
+          load: true
+          tags: lambda-layer-verifier:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect Layer Size
+        run: |
+          docker run --rm lambda-layer-verifier:latest python3 /verify_layer.py /opt/python
+          docker run --rm lambda-layer-verifier:latest python3 /test_smoke.py
