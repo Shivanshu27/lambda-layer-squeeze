@@ -1,9 +1,6 @@
-# Production requirements for computer vision & lightweight ML inference
-# Note: For PyTorch CPU wheels in AWS Lambda, specify CPU wheel index to avoid CUDA bloat
---extra-index-url https://download.pytorch.org/whl/cpu
-
-torch==2.2.0+cpu
-torchvision==0.17.0+cpu
+# Production dependencies for computer vision & lightweight inference
+# Note: PyTorch CPU wheels are installed directly from the PyTorch index in the Dockerfile
+# to prevent global index leakage and forced compilation of binary wheels from source.
 pillow>=10.2.0
 numpy>=1.26.0,<2.0.0
 opencv-python-headless>=4.9.0.80
