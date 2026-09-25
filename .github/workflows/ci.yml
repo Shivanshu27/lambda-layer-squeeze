@@ -28,5 +28,5 @@ jobs:
 
       - name: Inspect Layer Size
         run: |
-          docker run --rm lambda-layer-verifier:latest python3 /verify_layer.py /opt/python
-          docker run --rm lambda-layer-verifier:latest python3 /test_smoke.py
+          docker run --rm --entrypoint python3 lambda-layer-verifier:latest /verify_layer.py /opt/python
+          docker run --rm --entrypoint python3 lambda-layer-verifier:latest /test_smoke.py

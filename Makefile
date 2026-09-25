@@ -30,8 +30,8 @@ extract: build
 	@ls -lh $(OUTPUT_ZIP)
 
 verify: build
-	docker run --rm $(IMAGE_NAME) python3 /verify_layer.py /opt/python
-	docker run --rm $(IMAGE_NAME) python3 /test_smoke.py
+	docker run --rm --entrypoint python3 $(IMAGE_NAME) /verify_layer.py /opt/python
+	docker run --rm --entrypoint python3 $(IMAGE_NAME) /test_smoke.py
 
 clean:
 	rm -rf dist $(OUTPUT_ZIP)
