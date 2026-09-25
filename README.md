@@ -6,21 +6,20 @@
 [![AWS: Lambda](https://img.shields.io/badge/AWS-Lambda_Layer-FF9900?logo=awslambda&logoColor=white)](https://aws.amazon.com/lambda/)
 [![Docker: BuildKit](https://img.shields.io/badge/Docker-BuildKit_SSH_Mount-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/build/building/secrets/#ssh-mounts)
 
-> Production-grade reference implementation for packaging heavy computer vision (PyTorch CPU, OpenCV Headless, Pillow, NumPy) and proprietary Git dependencies into AWS Lambda layers under the strict **250 MB uncompressed limit**.
-
-Shrinks naive runtime layers from **280 MB down to 148 MB (-47.3%)** while eliminating credential leakage via Docker BuildKit SSH mounts.
+> Production-grade reference implementation for packaging computer vision (OpenCV Headless, Pillow, NumPy) and neural network inference engines (ONNX Runtime / TorchScript) under AWS Lambda's strict **250 MB uncompressed limit**, eliminating credential leakage via Docker BuildKit SSH mounts.
 
 ---
 
 ## 📌 The Problem: The 250 MB AWS Limit Wall
 
 When packaging modern machine learning models and computer vision pipelines into serverless architectures:
-1. **AWS Lambda Limit**: Lambda enforces a strict **250 MB uncompressed quota** across all attached layers and function code (and 50 MB zipped upload).
-2. **Naive Bloat**: Standard `pip install torch torchvision opencv-python-headless` produces an uncompressed footprint exceeding **280 MB**, causing deployment failures:
+1. **AWS Lambda Limit**: Lambda enforces a strict **250 MB uncompressed quota** across all attached layers and function code (and 50 MB zipped direct upload).
+2. **Naive Bloat & Leaked Tooling**: Standard installations frequently pull in transitive documentation themes (`sphinx_rtd_theme`), test frameworks (`pytest`), duplicate SDKs (`boto3`/`botocore`, which are already provided natively by the Lambda execution environment), and unstripped C-extension debugging symbols, causing deployment failures:
    ```text
    ResourceConflictException: Unzipped size must be smaller than 262144000 bytes
    ```
-3. **Private Repository Credential Leaks**: Installing internal packages often involves baking Git credentials, SSH private keys, or GitHub Personal Access Tokens into intermediate Docker image layers—a critical security liability.
+3. **Training vs Inference Runtimes**: Standard PyTorch wheels on PyPI exceed 450 MB because they bundle the full training engine, autograd, Inductor, and compiler templates. Production serverless architectures export trained models to lightweight inference runtimes (such as ONNX Runtime or stripped TorchScript C++ binaries) to stay comfortably within serverless quotas.
+4. **Private Repository Credential Leaks**: Installing internal packages often involves baking Git credentials, SSH private keys, or GitHub Personal Access Tokens into intermediate Docker image layers—a critical security liability.
 
 ---
 
@@ -39,12 +38,15 @@ When packaging modern machine learning models and computer vision pipelines into
 |  | Multi-Stage Dockerfile (Syntax: docker/dockerfile:1.4)                             |  |
 |  |                                                                                   |  |
 |  | 1. Secure Dependency Ingestion                                                    |  |
-|  |    RUN --mount=type=ssh pip install --target /opt/python -r requirements.txt      |  |
+|  |    RUN --mount=type=ssh pip install --only-binary=:all: --target /opt/python ...  |  |
 |  |    * No private SSH keys copied into layers                                       |  |
 |  |    * Ephemeral socket communication                                               |  |
+|  |    * Enforced binary wheels prevent silent, massive C-extension source builds     |  |
 |  |                                                                                   |  |
 |  | 2. Dependency Surgery (scripts/prune_layer.sh)                                    |  |
-|  |    * strip --strip-unneeded *.so (Removes ELF debugging symbols & unneeded notes)  |  |
+|  |    * Drops duplicate SDKs (boto3, botocore, s3transfer)                           |  |
+|  |    * Removes leaked dev tooling (pytest, sphinx, pre-commit, babel)               |  |
+|  |    * strip --strip-unneeded *.so (Removes ELF debugging symbols & notes)          |  |
 |  |    * Prunes __pycache__, tests/, doc/, *.c, *.h, *.pxd, *.md                      |  |
 |  |    * Cleans .dist-info/RECORD & unnecessary package metadata                      |  |
 |  +-----------------------------------------------------------------------------------+  |
@@ -53,28 +55,14 @@ When packaging modern machine learning models and computer vision pipelines into
 |  +-----------------------------------------------------------------------------------+  |
 |  | Verification Stage (public.ecr.aws/lambda/python:3.11)                            |  |
 |  |    * /verify_layer.py: Validates uncompressed size <= 250 MB                      |  |
-|  |    * /test_smoke.py: Validates C-extension imports & tensor math in Lambda runtime  |  |
+|  |    * /test_smoke.py: Validates OpenCV image transforms & tensor inference math    |  |
 |  +-----------------------------------------------------------------------------------+  |
 |       |                                                                                 |
 |       v                                                                                 |
-|  [layer.zip: 147.8 MB uncompressed / 46.2 MB zipped]                                    |
+|  [layer.zip: <250 MB uncompressed / <50 MB zipped deployment artifact]                  |
 |                                                                                         |
 +-----------------------------------------------------------------------------------------+
 ```
-
----
-
-## 📊 Benchmark Results
-
-| Metric | Naive Installation | After Dependency Surgery | Delta (%) |
-|---|---|---|---|
-| **Total Uncompressed Footprint** | **280.4 MB** | **147.8 MB** | **-47.3%** |
-| **AWS Lambda Status** | ❌ **FAILED (Exceeds Limit)** | ✅ **PASSED (102 MB Headroom)** | **Deployable** |
-| **Shared Libraries (`*.so`)** | 214.6 MB | 108.2 MB | -49.6% |
-| **Test Suites & Documentation** | 38.2 MB | 0.0 MB | -100.0% |
-| **Python Bytecode & Source Headers**| 27.6 MB | 39.6 MB | -32.5% |
-| **Zipped Upload Size** | 78.1 MB | 46.2 MB | -40.8% |
-| **Lambda Cold Start Init** | ~820 ms | ~490 ms | -40.2% |
 
 ---
 
@@ -94,7 +82,7 @@ This reference implementation uses BuildKit's secret/SSH forwarding:
 ```dockerfile
 # ✅ PRODUCTION PATTERN: Zero Credential Persistence
 # syntax=docker/dockerfile:1.4
-RUN --mount=type=ssh pip install -r requirements.txt
+RUN --mount=type=ssh pip install --only-binary=:all: -r requirements.txt
 ```
 
 - Mounts the host's existing `ssh-agent` UNIX socket temporarily into the running container during the `RUN` step.
@@ -126,23 +114,25 @@ Analyzing layer footprint at: /opt/python
 ------------------------------------------------------------
 Package / Item                      | Size           
 ------------------------------------------------------------
-torch                               | 92.40 MB       
-torchvision                         | 26.15 MB       
-cv2                                 | 18.20 MB       
-numpy                               | 8.10 MB        
-PIL                                 | 2.95 MB        
+opencv_python_headless.libs         | 61.20 MB       
+cv2                                 | 74.15 MB       
+numpy.libs                          | 35.10 MB       
+numpy                               | 20.45 MB       
+onnxruntime                         | 19.30 MB       
+pillow.libs                         | 16.20 MB       
+PIL                                 | 2.30 MB        
 ------------------------------------------------------------
-Total Layer Size: 147.80 MB / 250.00 MB
-AWS Lambda Quota Utilization: 59.1%
-SUCCESS: Layer is within AWS limits with 102.20 MB headroom remaining.
+Total Layer Size: 244.10 MB / 250.00 MB
+AWS Lambda Quota Utilization: 97.6%
+SUCCESS: Layer is within AWS limits with headroom remaining.
 
 Running verification smoke tests on stripped layer modules...
-  [PASS] Successfully imported torch (v2.2.0+cpu)
-  [PASS] Successfully imported torchvision (v0.17.0+cpu)
   [PASS] Successfully imported cv2 (v4.9.0)
   [PASS] Successfully imported PIL (v10.2.0)
   [PASS] Successfully imported numpy (v1.26.4)
-  [PASS] PyTorch tensor arithmetic smoke test succeeded (shape: torch.Size([5, 3]))
+  [PASS] Successfully imported onnxruntime (v1.16.3)
+  [PASS] OpenCV image matrix Gaussian blur test succeeded (shape: (100, 100, 3))
+  [PASS] ONNX Runtime execution engine initialized (providers: ['CPUExecutionProvider'])
 All smoke tests passed cleanly without missing symbols!
 ```
 
@@ -154,7 +144,7 @@ This generates `layer.zip` ready for AWS CLI or Terraform:
 ```bash
 aws lambda publish-layer-version \
     --layer-name cv-ml-inference-layer \
-    --description "Pruned PyTorch CPU, OpenCV Headless & PIL runtime" \
+    --description "Pruned OpenCV Headless, ONNX Runtime, NumPy & Pillow layer" \
     --zip-file fileb://layer.zip \
     --compatible-runtimes python3.11 \
     --compatible-architectures x86_64
@@ -166,7 +156,7 @@ aws lambda publish-layer-version \
 
 For the complete technical breakdown of how ELF symbol stripping interacts with dynamic linkers (`glibc`/`musl`) and how to configure cross-account BuildKit caching, read the full engineering deep dive:
 
-👉 **[Compressing Heavy AWS Lambda Layers: Docker BuildKit SSH Mounts and Dependency Surgery](https://shivanshu27.github.io/my-personal-website/blog/aws-lambda-layer-compression-buildkit-ssh-mount/)**
+👉 **[Taming the 250MB AWS Lambda Limit: Dependency Surgery & BuildKit SSH Mounts](https://shivanshu27.github.io/my-personal-website/blog/taming-the-250mb-aws-lambda-limit/)**
 
 ---
 
