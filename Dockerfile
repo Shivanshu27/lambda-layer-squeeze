@@ -13,27 +13,29 @@ RUN yum update -y && \
 
 # Target layer structure for AWS Lambda runtime
 ENV LAYER_DIR=/opt/python
+ENV PYTHONPATH="${LAYER_DIR}:${PYTHONPATH}"
 RUN mkdir -p ${LAYER_DIR}
 
 COPY requirements.txt .
 COPY scripts/prune_layer.sh /usr/local/bin/prune_layer.sh
 RUN chmod +x /usr/local/bin/prune_layer.sh
 
-# 1. Install PyTorch CPU wheels from dedicated PyTorch index
-RUN --mount=type=ssh \
-    pip install \
-        --no-cache-dir \
-        --target ${LAYER_DIR} \
-        --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.2.0+cpu torchvision==0.17.0+cpu
-
-# 2. Install remaining dependencies enforcing pre-built wheels to prevent source compilation bloat
+# 1. Install pre-built binary dependencies from PyPI
 RUN --mount=type=ssh \
     pip install \
         --no-cache-dir \
         --target ${LAYER_DIR} \
         --only-binary=:all: \
         -r requirements.txt
+
+# 2. Install PyTorch CPU wheels from dedicated PyTorch index
+RUN --mount=type=ssh \
+    pip install \
+        --no-cache-dir \
+        --target ${LAYER_DIR} \
+        --only-binary=:all: \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        torch==2.2.0+cpu torchvision==0.17.0+cpu
 
 # Run dependency surgery to strip debug symbols and trim static bulk
 RUN /usr/local/bin/prune_layer.sh ${LAYER_DIR}
