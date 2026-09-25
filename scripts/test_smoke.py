@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import sys
+import os
 import importlib
+
+if "/opt/python" not in sys.path and os.path.exists("/opt/python"):
+    sys.path.insert(0, "/opt/python")
 
 MODULES_TO_TEST = [
     "cv2",
