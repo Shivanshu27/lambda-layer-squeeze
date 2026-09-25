@@ -19,12 +19,20 @@ COPY requirements.txt .
 COPY scripts/prune_layer.sh /usr/local/bin/prune_layer.sh
 RUN chmod +x /usr/local/bin/prune_layer.sh
 
-# Mount SSH agent securely during pip install without baking private keys into layers
-# Example: docker build --ssh default .
+# 1. Install PyTorch CPU wheels from dedicated PyTorch index
 RUN --mount=type=ssh \
     pip install \
         --no-cache-dir \
         --target ${LAYER_DIR} \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.2.0+cpu torchvision==0.17.0+cpu
+
+# 2. Install remaining dependencies enforcing pre-built wheels to prevent source compilation bloat
+RUN --mount=type=ssh \
+    pip install \
+        --no-cache-dir \
+        --target ${LAYER_DIR} \
+        --only-binary=:all: \
         -r requirements.txt
 
 # Run dependency surgery to strip debug symbols and trim static bulk
