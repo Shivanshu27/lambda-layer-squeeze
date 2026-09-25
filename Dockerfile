@@ -37,6 +37,7 @@ FROM public.ecr.aws/lambda/python:${PYTHON_VERSION} AS runtime-verifier
 WORKDIR /var/task
 
 ENV PYTHONPATH="/opt/python:${PYTHONPATH}"
+ENTRYPOINT []
 
 # Copy the pruned layer into the Lambda runtime search path
 COPY --from=builder /opt/python /opt/python
