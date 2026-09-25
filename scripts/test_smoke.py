@@ -3,11 +3,10 @@ import sys
 import importlib
 
 MODULES_TO_TEST = [
-    "torch",
-    "torchvision",
     "cv2",
     "PIL",
     "numpy",
+    "onnxruntime",
 ]
 
 def run_smoke_tests():
@@ -27,15 +26,24 @@ def run_smoke_tests():
         print(f"Smoke test failed for: {', '.join(failed)}")
         sys.exit(1)
         
-    # Quick tensor compute test
+    # Image processing smoke test
     try:
-        import torch
-        x = torch.rand(5, 3)
-        y = torch.ones(5, 3)
-        z = x + y
-        print(f"  [PASS] PyTorch tensor arithmetic smoke test succeeded (shape: {z.shape})")
+        import numpy as np
+        import cv2
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        blurred = cv2.GaussianBlur(img, (5, 5), 0)
+        print(f"  [PASS] OpenCV image matrix Gaussian blur test succeeded (shape: {blurred.shape})")
     except Exception as e:
-        print(f"  [FAIL] PyTorch computation check failed: {e}")
+        print(f"  [FAIL] OpenCV computation check failed: {e}")
+        sys.exit(1)
+
+    # ONNX runtime inference session smoke test
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        print(f"  [PASS] ONNX Runtime execution engine initialized (providers: {providers})")
+    except Exception as e:
+        print(f"  [FAIL] ONNX Runtime initialization check failed: {e}")
         sys.exit(1)
         
     print("All smoke tests passed cleanly without missing symbols!")
