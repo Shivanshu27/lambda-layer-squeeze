@@ -66,6 +66,28 @@ When packaging modern machine learning models and computer vision pipelines into
 
 ---
 
+## 📏 Results (measured in CI on every push)
+
+| | Size |
+|---|---:|
+| After `pip install`, before surgery | **494 MB** |
+| After dependency surgery | **230 MB** (229.63 MiB by the verifier, 91.9% of quota) |
+| Shared libraries stripped | 67 |
+| Gate | the build **fails** if the layer exceeds 250 MiB |
+
+The gate has fired for real: one build came out at **252.82 MB** (2.82 MB over),
+because transitive documentation packages (sympy, pygments, docutils) leaked in.
+Adding them to the surgery list fixed it, and later CI size tables exposed
+`_pytest` and `snowballstemmer`, which were pruned the same way.
+
+> **About the "280 MB → 148 MB" figure in the blog post:** that is a production
+> migration at work, on a different stack (PyTorch, OpenCV and internal
+> libraries). This repository applies the same technique to a public
+> inference stack, so its numbers differ; the table above is what anyone can
+> reproduce.
+
+---
+
 ## 🔒 Security: Why BuildKit SSH Mounts?
 
 Most naive CI configurations install private dependencies by passing GitHub tokens or SSH keys as build arguments:
@@ -108,33 +130,36 @@ make build
 make verify
 ```
 
-Sample output:
+Real output, copied from the CI run that verifies every push (Lambda Python 3.11 image, x86_64):
 ```text
 Analyzing layer footprint at: /opt/python
 ------------------------------------------------------------
 Package / Item                      | Size           
 ------------------------------------------------------------
-opencv_python_headless.libs         | 61.20 MB       
-cv2                                 | 74.15 MB       
-numpy.libs                          | 35.10 MB       
-numpy                               | 20.45 MB       
-onnxruntime                         | 19.30 MB       
-pillow.libs                         | 16.20 MB       
-PIL                                 | 2.30 MB        
+cv2                                 | 71.88 MB       
+opencv_python_headless.libs         | 60.30 MB       
+numpy.libs                          | 34.90 MB       
+numpy                               | 20.81 MB       
+onnxruntime                         | 17.18 MB       
+pillow.libs                         | 15.43 MB       
+PIL                                 | 1.99 MB        
+google                              | 1.24 MB        
+charset_normalizer                  | 643.72 KB      
+yaml                                | 572.78 KB      
 ------------------------------------------------------------
-Total Layer Size: 244.10 MB / 250.00 MB
-AWS Lambda Quota Utilization: 97.6%
-SUCCESS: Layer is within AWS limits with headroom remaining.
-
+Total Layer Size: 229.63 MB / 250.00 MB
+AWS Lambda Quota Utilization: 91.9%
+SUCCESS: Layer is within AWS limits with 20.37 MB headroom remaining.
 Running verification smoke tests on stripped layer modules...
   [PASS] Successfully imported cv2 (v4.9.0)
-  [PASS] Successfully imported PIL (v10.2.0)
+  [PASS] Successfully imported PIL (v12.2.0)
   [PASS] Successfully imported numpy (v1.26.4)
   [PASS] Successfully imported onnxruntime (v1.16.3)
   [PASS] OpenCV image matrix Gaussian blur test succeeded (shape: (100, 100, 3))
-  [PASS] ONNX Runtime execution engine initialized (providers: ['CPUExecutionProvider'])
+  [PASS] ONNX Runtime execution engine initialized (providers: ['AzureExecutionProvider', 'CPUExecutionProvider'])
 All smoke tests passed cleanly without missing symbols!
 ```
+(`MB` in the verifier is MiB: the limit it checks is 250 × 1024 × 1024 = 262,144,000 bytes, exactly AWS's number.)
 
 ### 3. Extract Zipped Layer for Deployment
 ```bash
