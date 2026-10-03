@@ -21,7 +21,10 @@ rm -rf "$TARGET_DIR"/boto3* "$TARGET_DIR"/botocore* "$TARGET_DIR"/s3transfer*
 
 # 2. Remove leaked developer, test, and documentation tooling
 echo ">> Removing leaked build & documentation tooling..."
+# _pytest is pytest's private package (not matched by pytest*); snowballstemmer
+# is only used by sphinx. Both survived surgery until CI's size table showed them.
 rm -rf "$TARGET_DIR"/sphinx* "$TARGET_DIR"/pre_commit* "$TARGET_DIR"/pytest* \
+       "$TARGET_DIR"/_pytest* "$TARGET_DIR"/snowballstemmer* \
        "$TARGET_DIR"/babel* "$TARGET_DIR"/virtualenv* "$TARGET_DIR"/nodeenv* \
        "$TARGET_DIR"/sympy* "$TARGET_DIR"/pygments* "$TARGET_DIR"/docutils* \
        "$TARGET_DIR"/mpmath* "$TARGET_DIR"/jinja2* "$TARGET_DIR"/markupsafe*
